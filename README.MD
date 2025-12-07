@@ -1,7 +1,7 @@
 # ![Serverless AI Data Pipeline](img/cover_page.jpg)
-# Chaptly (YouTube Tutor Chatbot)
+# Chaptive (YouTube Tutor Chatbot)
 
-Chaptly is a conversational learning assistant that turns long-form YouTube lectures into an interactive study companion. Learners paste a video URL, the system fetches transcripts, builds Gemini-powered embeddings, and exposes search/QA/bookmark workflows via a FastAPI backend running on AWS Lambda.
+Chaptive is a conversational learning assistant that turns long-form YouTube lectures into an interactive study companion. Learners paste a video URL, the system fetches transcripts, builds Gemini-powered embeddings, and exposes search/QA/bookmark workflows via a FastAPI backend running on AWS Lambda.
 
 ---
 
@@ -25,7 +25,7 @@ User UI (Hugging Face Space / Streamlit)
 API Gateway (HTTP API) ──> AWS Lambda (FastAPI via Mangum)
             |                         |
             |                         ├── S3 (artifacts, Lambda ZIP)
-            |                         ├── DynamoDB (ChaptlyJobs)
+            |                         ├── DynamoDB (ChaptiveJobs)
             |                         ├── Secrets Manager (HMAC + runtime config)
             |                         └── Gemini APIs (embeddings + LLM answers)
             v
@@ -66,13 +66,13 @@ Need a refresher? See `infra/terraform/README.md` for a resource-by-resource bre
 
 
 ## Data Model
-- **S3**: `s3://chaptly-rag/<video_id>/chunks.json`, `embeddings.npy`, `artifacts.json`, plus cached quizzes/summaries. Lifecycle policies expire unused versions after 30/7 days.
-- **DynamoDB (`ChaptlyJobs`)**: partition key `job_id`, TTL on `expires_at`, used to track ingestion jobs/status.
+- **S3**: `s3://chaptive-rag/<video_id>/chunks.json`, `embeddings.npy`, `artifacts.json`, plus cached quizzes/summaries. Lifecycle policies expire unused versions after 30/7 days.
+- **DynamoDB (`ChaptiveJobs`)**: partition key `job_id`, TTL on `expires_at`, used to track ingestion jobs/status.
 
 
 ## Backend Execution Model (AWS Lambda + FastAPI)
 - FastAPI app (`src/api/main.py`) runs inside Lambda via Mangum; same code can run locally with `uvicorn`.
-- `scripts/package_lambda.sh` builds a manylinux/ARM64 ZIP inside the SAM Python 3.11 container, bundles dependencies + `nltk_data`, and writes `dist/chaptly-api.zip`.
+- `scripts/package_lambda.sh` builds a manylinux/ARM64 ZIP inside the SAM Python 3.11 container, bundles dependencies + `nltk_data`, and writes `dist/chaptive-api.zip`.
 - The ZIP is uploaded to S3; Terraform/Lambda pulls from that bucket on deploy.
 - Environment variables (set by Terraform) include `ENV`, `S3_BUCKET`, `LOG_LEVEL`, and overrides.
 
@@ -89,8 +89,8 @@ Need a refresher? See `infra/terraform/README.md` for a resource-by-resource bre
 
 ## Concurrency & Rate Limiting Strategy
 - API Gateway stage throttling: burst 50 / steady 25 requests per second.
-- Application-level middleware enforces `MAX_REQUESTS_PER_MINUTE` (default 60) with a token-bucket per API key; quota events log to `s3://chaptly-rag-usage/quota-logs/`.
-- Future HMAC signature verification (using `chaptly-api-hmac-key`) will allow tamper-proof client-side signing.
+- Application-level middleware enforces `MAX_REQUESTS_PER_MINUTE` (default 60) with a token-bucket per API key; quota events log to `s3://chaptive-rag-usage/quota-logs/`.
+- Future HMAC signature verification (using `chaptive-api-hmac-key`) will allow tamper-proof client-side signing.
 
 
 ## CORS & Hugging Face Origin Control
@@ -109,9 +109,9 @@ Need a refresher? See `infra/terraform/README.md` for a resource-by-resource bre
 - `/videos/process` can be invoked multiple times safely; the latest chunk set replaces prior ones.
 
 ## Metrics & Observability
-- CloudWatch log group `/aws/lambda/chaptly-api` retains 14 days (configurable).
+- CloudWatch log group `/aws/lambda/chaptive-api` retains 14 days (configurable).
 - Structured logging includes `request_id`, `video_id`, and error metadata.
-- Quota middleware writes JSON events to `s3://chaptly-rag-usage/quota-logs/` for offline analysis.
+- Quota middleware writes JSON events to `s3://chaptive-rag-usage/quota-logs/` for offline analysis.
 - Terraform outputs the API Gateway URL, Lambda ARN, and secret names for hooking into dashboards.
 
 
@@ -135,13 +135,13 @@ Need a refresher? See `infra/terraform/README.md` for a resource-by-resource bre
 
 
 ## Deployment & Packaging (S3 ZIP Workflow)
-1. Run `./scripts/package_lambda.sh` to build `dist/chaptly-api.zip` inside the AWS SAM Python 3.11 (ARM64) container. The script pins wheels, prunes tests, and bundles `nltk_data`.
+1. Run `./scripts/package_lambda.sh` to build `dist/chaptive-api.zip` inside the AWS SAM Python 3.11 (ARM64) container. The script pins wheels, prunes tests, and bundles `nltk_data`.
 2. Upload the ZIP to S3 (or any bucket/key set via configuration).
 3. Apply Terraform (`infra/terraform`) to provision/refresh S3, DynamoDB, IAM, Lambda, and API Gateway. Terraform reads the uploaded ZIP path and updates Lambda accordingly.
 
 ### Monitoring YouTube Transcript Fetches
-- Tail the Lambda logs (`/aws/lambda/chaptly-api`) and filter for `get_transcript_with_api.blocked` warnings which indicate `youtube_transcript_api` hit `IpBlocked`/`RequestBlocked` errors.
-- Quick CLI tail: `aws logs tail /aws/lambda/chaptly-api --since 5m --follow` shows the most recent warnings/errors in real time.
+- Tail the Lambda logs (`/aws/lambda/chaptive-api`) and filter for `get_transcript_with_api.blocked` warnings which indicate `youtube_transcript_api` hit `IpBlocked`/`RequestBlocked` errors.
+- Quick CLI tail: `aws logs tail /aws/lambda/chaptive-api --since 5m --follow` shows the most recent warnings/errors in real time.
 - If you see bursts of these events, stagger ingestion jobs or temporarily pause new submissions so YouTube rate limits can cool down.
 - Configure residential proxies or authenticated HTTP/S proxies via the `YOUTUBE_TRANSCRIPT_PROXY_URL` / `YOUTUBE_TRANSCRIPT_PROXY_HTTPS_URL` env vars to rotate IPs automatically.
 - Provide browser cookies (e.g., `VISITOR_INFO1_LIVE`, `CONSENT`) via `YOUTUBE_TRANSCRIPT_COOKIES` or a `YOUTUBE_TRANSCRIPT_COOKIES_FILE` path so requests look like a real user session.
@@ -157,7 +157,7 @@ Need a refresher? See `infra/terraform/README.md` for a resource-by-resource bre
 - Validation checklist for any proxy change:
    1. Export the env vars locally and run `python3 scripts/test_transcript_proxy.py` to verify the unblocker responds (set `YOUTUBE_TRANSCRIPT_VERIFY_SSL=true` if the provider offers a trusted CA bundle).
    2. Deploy via Terraform / redeploy script so Lambda receives the rotated secrets.
-   3. Tail `/aws/lambda/chaptly-api` logs for `get_transcript_with_api` warnings or `IpBlocked`/`RequestBlocked` signals to confirm no regressions.
+   3. Tail `/aws/lambda/chaptive-api` logs for `get_transcript_with_api` warnings or `IpBlocked`/`RequestBlocked` signals to confirm no regressions.
 
 ### Proxy Cost & Safeguards
 - Most pay-as-you-go residential pools bill per GB (commonly $8–$15/GB). Transcript fetches are lightweight (~150–300 KB/request), so steady-state costs stay low if you cache aggressively.
@@ -200,7 +200,7 @@ Need a refresher? See `infra/terraform/README.md` for a resource-by-resource bre
 ### Environment Variables (partial list)
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `S3_BUCKET` | Artifact bucket name. | `chaptly-rag` |
+| `S3_BUCKET` | Artifact bucket name. | `chaptive-rag` |
 | `S3_PREFIX` | Optional artifact folder prefix. | `` |
 | `EMBEDDING_MODEL` | Embedding model id. | `models/text-embedding-004` |
 | `GEMINI_MODEL` | Generation model. | `gemini-1.5-flash` |
@@ -223,22 +223,22 @@ Need a refresher? See `infra/terraform/README.md` for a resource-by-resource bre
 ```bash
 # 1) Kick off ingestion (requires approved channel)
 curl -X POST "${API_URL}/videos/process?url=https://www.youtube.com/watch?v=GOgA8JGUiwI" \
-   -H "X-API-Key: ${CHAPTLY_API_KEY}"
+   -H "X-API-Key: ${CHAPTIVE_API_KEY}"
 
 # 2) Poll status
 curl -X GET "${API_URL}/videos/process/${JOB_ID}" \
-   -H "X-API-Key: ${CHAPTLY_API_KEY}"
+   -H "X-API-Key: ${CHAPTIVE_API_KEY}"
 
 # 3) Ask a question once artifacts exist
 curl -X POST "${API_URL}/videos/GOgA8JGUiwI/qa" \
    -H "Content-Type: application/json" \
-   -H "X-API-Key: ${CHAPTLY_API_KEY}" \
+   -H "X-API-Key: ${CHAPTIVE_API_KEY}" \
    -d '{"query":"What is dynamic programming?","limit":5}'
 
 # 4) Semantic search
 curl -X POST "${API_URL}/search" \
    -H "Content-Type: application/json" \
-   -H "X-API-Key: ${CHAPTLY_API_KEY}" \
+   -H "X-API-Key: ${CHAPTIVE_API_KEY}" \
    -d '{"query":"bellman equation","video_id":"GOgA8JGUiwI","limit":4}'
 ```
 
@@ -260,4 +260,4 @@ Responses adhere to the Pydantic schemas in `src/api/models/schemas.py`, so you 
 
 ---
 
-© Chaptly — see [LICENSE](./LICENSE) for usage terms. Contributions welcome via pull requests.
+© Chaptive — see [LICENSE](./LICENSE) for usage terms. Contributions welcome via pull requests.
